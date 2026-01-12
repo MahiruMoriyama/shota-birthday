@@ -1,0 +1,20 @@
+{
+  "siteConfig": {
+    "theme": "8bit-retro",
+    "targetName": "将大",
+    "age": 26,
+    "titleText": "QUEST OF SHOTA: 26TH HBD"
+  },
+  "game": {
+    "targetItem": "croquette",
+    "targetCount": 3,
+    "difficulty": "hard",
+    "clearMessage": "STAGE CLEAR!"
+  },
+  "secret": {
+    "rubCount": 5,
+    "hintText": "ドット犬ヲ 5カイ レンダセヨ",
+    "question": "二人の記念日ヲ入力セヨ",
+    "password": "0807"
+  }
+}

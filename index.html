@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QUEST OF SHOTA: 26TH HBD</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+</head>
+<body>
+
+    <div class="scanline"></div> <div id="main-content" class="nes-container">
+        <audio id="game-bgm" src="8bit_adventure.mp3" loop></audio>
+        <header id="header-area">
+            <div class="corgi-container arcade-border">
+                <img src="corgi.png" alt="ドット絵コーギー" id="corgi-img" class="pixelated">
+                <div class="header-text text-shadow">将大！お誕生日、おめでとう</div>
+            </div>
+        </header>
+
+        <section class="message-area arcade-border">
+            <p>勇者ショウタよ。<br>このダンジョンには仕掛けがある。</p>
+        </section>
+
+        <section class="game-container arcade-border">
+            <div class="game-header">
+                <h3>STAGE 1: コロッケ奪還</h3>
+                <p>JUMP: タップ / クリック</p>
+                <p id="score-board">コロッケ: <span id="croquette-count">0</span> / 3</p>
+            </div>
+            <canvas id="gameCanvas" class="pixelated"></canvas>
+            <button id="start-btn" class="nes-btn">PRESS START</button>
+        </section>
+    </div>
+
+    <div id="hint-modal" class="modal hidden">
+        <div class="modal-content arcade-border">
+            <span class="close-btn" id="close-hint">×</span>
+            <p>STAGE CLEAR!<br>上の<span class="highlight">「ドット犬」</span>を<br>5回 連打セヨ。</p>
+        </div>
+    </div>
+
+    <div id="password-modal" class="modal hidden">
+        <div class="modal-content arcade-border">
+            <p>二人の記念日ヲ入力セヨ</p>
+            <input type="text" id="pass-input" placeholder="0000" maxlength="4" class="nes-input">
+            <button id="pass-submit" class="nes-btn">OK</button>
+            <p id="error-msg" class="error hidden">ブブーッ！違イマス！</p>
+        </div>
+    </div>
+
+    <div id="success-screen" class="hidden">
+        <div class="success-content">
+            <h1 class="text-shadow">QUEST COMPLETE!</h1>
+            <p>ここまで来てくれてありがとう！<br>下の宝箱を開けてね！</p>
+            
+            <a href="https://youtu.be/9jZpQtLCQSU" target="_blank" class="chest-link">
+                <img src="treasure_box.png" alt="宝箱" class="chest-img pixelated">
+                <p class="click-hint blinking">PUSH START BUTTON!</p>
+            </a>
+        </div>
+    </div>
+
+    <script>
+        const CONFIG = {
+            password: "0807",
+            rubCountTarget: 5,
+            targetCroquettes: 3 // 目標コロッケ数
+        };
+
+        // --- ゲームロジック (8bit高難易度版) ---
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const startBtn = document.getElementById('start-btn');
+        const bgm = document.getElementById('game-bgm');
+        const scoreBoard = document.getElementById('croquette-count');
+        
+        function resizeCanvas() {
+            canvas.width = Math.min(window.innerWidth - 60, 600);
+            canvas.height = 250;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        let gameRunning = false;
+        let animationId;
+        let croquettesCollected = 0; // 現在の獲得数
+        
+        // プレイヤー（レトロな挙動のために少し重く設定）
+        const player = { x: 30, y: 150, w: 24, h: 24, dy: 0, jumpPower: -11, grounded: true, color: "#3498db" };
+        const gravity = 0.8; // 重力を強く
+        const gameSpeed = 6; // スピードアップ
+        
+        let obstacles = [];
+        let croquettesItems = []; // 複数のコロッケを管理
+        let frame = 0;
+        const groundHeight = 30;
+
+        // ドット絵風描画ヘルパー（簡易的な四角描写）
+        function drawPixelRect(x, y, w, h, color) {
+            ctx.fillStyle = color;
+            // 輪郭線を描いてドット感を出す
+            ctx.fillRect(x, y, w, h);
+            ctx.strokeStyle = "#000";
+            ctx.lineWidth = 2;
+            ctx.strokeRect(x+1, y+1, w-2, h-2);
+        }
+
+        function drawPlayer() {
+            // 青いドット勇者
+            drawPixelRect(player.x, player.y, player.w, player.h, player.color);
+            // 目の部分
+            ctx.fillStyle = "#fff";
+            ctx.fillRect(player.x + 14, player.y + 6, 6, 6);
+        }
+
+        function spawnObstacle() {
+            // 赤いトゲトゲの障害物
+            const height = Math.random() > 0.5 ? 30 : 50; // 高さのバリエーション
+            obstacles.push({ x: canvas.width, y: canvas.height - groundHeight - height, w: 24, h: height, color: "#e74c3c" });
+        }
+
+        function spawnCroquette() {
+            // 空中に浮かぶコロッケ
+            const randomY = Math.random() * (canvas.height - groundHeight - 80) + 50;
+            croquettesItems.push({ x: canvas.width, y: randomY, w: 32, h: 24, color: "#d35400", collected: false });
+        }
+
+        function updateGame() {
+            if (!gameRunning) return;
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // 背景（黒）と地面（茶色ドット）
+            ctx.fillStyle = "#000";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = "#8B4513"; // 茶色
+            ctx.fillRect(0, canvas.height - groundHeight, canvas.width, groundHeight);
+            // 地面の模様
+            ctx.fillStyle = "#A0522D";
+            for(let i=0; i<canvas.width; i+=20) {
+                 ctx.fillRect(i, canvas.height - groundHeight + 5, 10, 10);
+            }
+
+            // プレイヤー物理演算
+            player.dy += gravity;
+            player.y += player.dy;
+
+            // 着地判定
+            if (player.y > canvas.height - groundHeight - player.h) {
+                player.y = canvas.height - groundHeight - player.h;
+                player.dy = 0;
+                player.grounded = true;
+            } else {
+                player.grounded = false;
+            }
+
+            drawPlayer();
+
+            // 障害物管理 (出現頻度アップ: frame % 70)
+            if (frame % 70 === 0) {
+                spawnObstacle();
+            }
+
+            // 障害物処理
+            obstacles.forEach((obs, index) => {
+                obs.x -= gameSpeed;
+                // トゲトゲ描画
+                drawPixelRect(obs.x, obs.y, obs.w, obs.h, obs.color);
+
+                // 衝突判定（少し判定を厳しく内側に入れる）
+                if (
+                    player.x + 4 < obs.x + obs.w &&
+                    player.x + player.w - 4 > obs.x &&
+                    player.y + 4 < obs.y + obs.h &&
+                    player.y + player.h - 2 > obs.y
+                ) {
+                    gameOver();
+                }
+                if (obs.x + obs.w < 0) obstacles.splice(index, 1);
+            });
+
+            // コロッケ出現管理 (一定間隔で出現)
+            if (frame % 250 === 0 && croquettesCollected < CONFIG.targetCroquettes) {
+                spawnCroquette();
+            }
+
+            // コロッケ処理
+            croquettesItems.forEach((item, index) => {
+                if(item.collected) return;
+                item.x -= gameSpeed;
+                
+                // コロッケ描画（茶色の塊）
+                drawPixelRect(item.x, item.y, item.w, item.h, item.color);
+
+                // 獲得判定
+                if (
+                    player.x < item.x + item.w &&
+                    player.x + player.w > item.x &&
+                    player.y < item.y + item.h &&
+                    player.y + player.h > item.y
+                ) {
+                    item.collected = true;
+                    croquettesCollected++;
+                    scoreBoard.innerText = croquettesCollected; // 表示更新
+                    croquettesItems.splice(index, 1); // 配列から削除
+
+                    // クリア判定
+                    if (croquettesCollected >= CONFIG.targetCroquettes) {
+                        gameWin();
+                    }
+                }
+                if (item.x + item.w < 0) croquettesItems.splice(index, 1);
+            });
+
+            frame++;
+            animationId = requestAnimationFrame(updateGame);
+        }
+
+        function jump() {
+            if (player.grounded) {
+                player.dy = player.jumpPower;
+                player.grounded = false;
+                // ここにジャンプ効果音を再生するコードを入れるとさらに良くなります
+            }
+        }
+
+        function resetGame() {
+            player.y = canvas.height - groundHeight - player.h;
+            player.dy = 0;
+            obstacles = [];
+            croquettesItems = [];
+            croquettesCollected = 0;
+            scoreBoard.innerText = 0;
+            frame = 0;
+        }
+
+        function gameOver() {
+            gameRunning = false;
+            alert("GAME OVER... リトライ！");
+            resetGame();
+        }
+
+        function gameWin() {
+            gameRunning = false;
+            try { bgm.pause(); } catch(e){}
+            // クリア後ポップアップ表示
+            document.getElementById('hint-modal').classList.remove('hidden');
+        }
+
+        startBtn.addEventListener('click', () => {
+            if (gameRunning) return;
+            resetGame();
+            gameRunning = true;
+            try { bgm.play(); } catch(e){ console.log("BGM start failed"); }
+            updateGame();
+            startBtn.innerText = "JUMP BUTTON";
+        });
+
+        canvas.addEventListener('mousedown', jump);
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            jump();
+        }, {passive: false});
+        startBtn.addEventListener('mousedown', jump);
+        startBtn.addEventListener('touchstart', (e) => {
+             e.preventDefault();
+             jump();
+        }, {passive: false});
+
+
+        // --- ポップアップ閉じる ---
+        document.getElementById('close-hint').addEventListener('click', () => {
+            document.getElementById('hint-modal').classList.add('hidden');
+        });
+
+        // --- ヘッダー「撫でる（連打）」ギミック ---
+        const corgiImg = document.getElementById('corgi-img');
+        let rubCount = 0;
+        let rubTimer;
+
+        corgiImg.addEventListener('click', () => {
+            // レトロな振動アニメーション
+            corgiImg.style.transform = "translate(5px, 0)";
+            setTimeout(() => { corgiImg.style.transform = "translate(-5px, 0)"; }, 50);
+            setTimeout(() => { corgiImg.style.transform = "translate(0, 0)"; }, 100);
+
+            rubCount++;
+            clearTimeout(rubTimer);
+            rubTimer = setTimeout(() => { rubCount = 0; }, 800); // 連打判定時間を短く
+
+            if (rubCount >= CONFIG.rubCountTarget) {
+                document.getElementById('password-modal').classList.remove('hidden');
+                rubCount = 0;
+            }
+        });
+
+        // --- パスワード認証 ---
+        const passSubmit = document.getElementById('pass-submit');
+        const passInput = document.getElementById('pass-input');
+
+        passSubmit.addEventListener('click', checkPass);
+
+        function checkPass() {
+            if (passInput.value === CONFIG.password) {
+                document.getElementById('main-content').classList.add('hidden');
+                document.getElementById('password-modal').classList.add('hidden');
+                document.getElementById('hint-modal').classList.add('hidden');
+                
+                const successScreen = document.getElementById('success-screen');
+                successScreen.classList.remove('hidden');
+                successScreen.classList.add('visible');
+                // 成功時の花火のようなエフェクトをCanvasで出すとさらに良いですが今回は割愛
+            } else {
+                document.getElementById('error-msg').classList.remove('hidden');
+                passInput.value = "";
+            }
+        }
+    </script>
+</body>
+</html>
